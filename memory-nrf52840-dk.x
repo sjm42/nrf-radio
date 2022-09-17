@@ -1,0 +1,6 @@
+MEMORY
+{
+  /* for nRF52840-DK with onboard J-Link */
+  FLASH : ORIGIN = 0x00000000, LENGTH = 768K
+  RAM   : ORIGIN = 0x20000000, LENGTH = 256K
+}
