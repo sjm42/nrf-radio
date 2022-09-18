@@ -31,7 +31,6 @@ embedded-hal = "0.2"
 fugit = "0.3"
 no-std-compat = { version = "0.4", features = ["alloc"] }
 panic-halt = "0.2"
-rtic-monotonic = "1.0"
 usb-device = "0.2"
 usbd-serial = "0.1"
 

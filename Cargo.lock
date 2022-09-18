@@ -402,7 +402,6 @@ dependencies = [
  "no-std-compat",
  "nrf52840-hal",
  "panic-halt",
- "rtic-monotonic",
  "usb-device",
  "usbd-serial",
 ]
