@@ -11,7 +11,6 @@ use panic_halt as _;
 use cortex_m::asm;
 use nrf52840_hal as hal;
 
-// use fugit::*;
 use hal::usbd::{UsbPeripheral, Usbd};
 use hal::{clocks::*, wdt, Clocks};
 use hal::{gpio::*, pac::*, prelude::*};
@@ -25,7 +24,6 @@ use usbd_serial::{SerialPort, USB_CLASS_CDC};
 mod mono;
 use mono::{ExtU32, MonoTimer};
 
-// const FREQ: u32 = 64_000_000;
 const MY_USB_VID: u16 = 0x16c0;
 const MY_USB_PID: u16 = 0x27dd;
 const MY_USB_MFC: &str = "Siuro hacklab";
@@ -43,7 +41,7 @@ mod app {
     #[shared]
     struct Shared {
         usb_dev: UsbDevice<'static, Usbd<UsbPeripheral<'static>>>,
-        serial: usbd_serial::SerialPort<'static, Usbd<UsbPeripheral<'static>>>,
+        serial: SerialPort<'static, Usbd<UsbPeripheral<'static>>>,
         #[lock_free]
         led1: Pin<Output<PushPull>>,
         #[lock_free]
@@ -118,12 +116,11 @@ mod app {
         .max_packet_size_0(64) // (makes control transfers 8x faster)
         .build();
 
-        // ping::spawn_after(500u32.millis()).ok();
-
         led1.set_low().ok();
-        led_blink::spawn_after(1000u32.millis()).ok();
-        usb_periodic::spawn().ok();
 
+        usb_periodic::spawn().ok();
+        ping::spawn_after(5.secs()).ok();
+        led_blink::spawn_after(1000u32.millis()).ok();
         (
             Shared {
                 usb_dev,
@@ -173,7 +170,6 @@ mod app {
         led_blink::spawn_after(250u32.millis()).ok();
     }
 
-    /*
     #[task(priority=2, capacity=2, shared=[serial])]
     fn ping(ctx: ping::Context) {
         let ping::SharedResources { mut serial } = ctx.shared;
@@ -181,9 +177,8 @@ mod app {
         (&mut serial,).lock(|serial| {
             serial.write("\r***PING!\n\r".as_bytes()).ok();
         });
-        ping::spawn_after(1000u32.millis()).ok();
+        ping::spawn_after(5.secs()).ok();
     }
-    */
 
     #[task(priority=2, capacity=8, shared=[led2, led2_on])]
     fn led2_blink(ctx: led2_blink::Context, ms: u32) {
@@ -253,7 +248,7 @@ mod app {
         (&mut usb_dev, &mut serial).lock(|usb_dev, serial| {
             usb_poll(usb_dev, serial);
         });
-        led2_blink::spawn(10).ok();
+        led2_blink::spawn(50).ok();
     }
 
     #[task(priority=3,  shared=[usb_dev, serial])]
@@ -266,17 +261,18 @@ mod app {
         (&mut usb_dev, &mut serial).lock(|usb_dev, serial| {
             usb_poll(usb_dev, serial);
         });
-        led3_blink::spawn(1).ok();
-        usb_periodic::spawn_after(10.millis()).ok();
+        // led3_blink::spawn(1).ok();
+        usb_periodic::spawn_after(3.millis()).ok();
     }
 
-    fn usb_poll<'a>(
-        usb_dev: &mut UsbDevice<Usbd<UsbPeripheral<'a>>>,
-        serial: &mut SerialPort<Usbd<UsbPeripheral<'a>>>,
+    fn usb_poll(
+        usb_dev: &mut UsbDevice<'static, Usbd<UsbPeripheral<'static>>>,
+        serial: &mut SerialPort<'static, Usbd<UsbPeripheral<'static>>>,
     ) -> bool {
         if !usb_dev.poll(&mut [serial]) {
             return false;
         }
+
         let mut buf = [0u8; 64];
         let count = match serial.read(&mut buf) {
             Ok(c) if c > 0 => c,
@@ -288,7 +284,7 @@ mod app {
         true
     }
 
-    fn serial_echo<'a>(serial: &'a mut SerialPort<Usbd<UsbPeripheral>>, data: &'a mut [u8]) {
+    fn serial_echo<'a>(serial: &mut SerialPort<'a, Usbd<UsbPeripheral<'a>>>, data: &mut [u8]) {
         for c in data.iter_mut() {
             if 0x61 <= *c && *c <= 0x7a {
                 *c &= !0x20;

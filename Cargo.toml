@@ -31,6 +31,7 @@ panic-halt = "0.2"
 usb-device = "0.2"
 usbd-serial = "0.1"
 
+# nrf-usbd = "0.1"
 # rtic-monotonic = "1.0"
 # systick-monotonic = "1"
 
