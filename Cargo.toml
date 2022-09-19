@@ -22,15 +22,14 @@ features = ["rt"]
 
 
 [dependencies]
-alloc-cortex-m = "0.4"
 cortex-m = "0.7"
 cortex-m-rt = "0.7"
 cortex-m-rtic = "1.1"
-dwt-systick-monotonic = "1.0"
+# dwt-systick-monotonic = "1.0"
 embedded-hal = "0.2"
 fugit = "0.3"
-no-std-compat = { version = "0.4", features = ["alloc"] }
 panic-halt = "0.2"
+systick-monotonic = "1"
 usb-device = "0.2"
 usbd-serial = "0.1"
 

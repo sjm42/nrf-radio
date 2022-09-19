@@ -2,24 +2,22 @@
 
 #![no_std]
 #![no_main]
-#![feature(alloc_error_handler)]
-// #![allow(non_snake_case)]
-
-// #![deny(warnings)]
 #![allow(unused_mut)]
+// #![allow(non_snake_case)]
+// #![deny(warnings)]
 
-extern crate alloc;
-extern crate no_std_compat as std;
-
-use alloc_cortex_m::CortexMHeap;
-use core::alloc::Layout;
 use panic_halt as _;
 
 use cortex_m::asm;
 use nrf52840_hal as hal;
 
-use dwt_systick_monotonic::{DwtSystick, ExtU32};
-use std::prelude::v1::*;
+use systick_monotonic::*;
+// use dwt_systick_monotonic::{DwtSystick, ExtU32};
+
+use fugit::*;
+use hal::usbd::{UsbPeripheral, Usbd};
+use hal::{clocks::*, wdt, Clocks};
+use hal::{gpio::*, prelude::*};
 use usb_device::{
     class_prelude::*,
     device::{UsbDeviceBuilder, UsbVidPid},
@@ -27,37 +25,26 @@ use usb_device::{
 };
 use usbd_serial::{SerialPort, USB_CLASS_CDC};
 
-use hal::usbd::{UsbPeripheral, Usbd};
-use hal::{clocks::*, wdt, Clocks};
-use hal::{gpio::*, prelude::*};
-
-#[global_allocator]
-static ALLOCATOR: CortexMHeap = CortexMHeap::empty();
-
-#[allow(clippy::empty_loop)]
-#[alloc_error_handler]
-fn oom(_: Layout) -> ! {
-    loop {}
-}
-
+const FREQ: u32 = 64_000_000;
 const MY_USB_VID: u16 = 0x16c0;
 const MY_USB_PID: u16 = 0x27dd;
 const MY_USB_MFC: &str = "Siuro hacklab";
 const MY_USB_PROD: &str = "nRF radio test1";
 const MY_USB_SER: &str = "asdf1234";
 
-#[rtic::app(device = nrf52840_hal::pac, peripherals = true, dispatchers = [SWI3_EGU3, SWI4_EGU4, SWI5_EGU5])]
+#[rtic::app(device = nrf52840_hal::pac, peripherals = true, dispatchers = [SWI0_EGU0, SWI1_EGU1])]
 mod app {
     use crate::*;
 
-    const FREQ: u32 = 64_000_000;
+    // #[monotonic(binds = SysTick, default = true)]
+    // type MyMono = DwtSystick<FREQ>;
     #[monotonic(binds = SysTick, default = true)]
-    type MyMono = DwtSystick<FREQ>;
+    type Mono = Systick<1_000_000>;
 
     #[shared]
     struct Shared {
-        usb_dev: UsbDevice<'static, Usbd<UsbPeripheral<'static>>>,
-        serial: usbd_serial::SerialPort<'static, Usbd<UsbPeripheral<'static>>>,
+        // usb_dev: UsbDevice<'static, Usbd<UsbPeripheral<'static>>>,
+        // serial: usbd_serial::SerialPort<'static, Usbd<UsbPeripheral<'static>>>,
         led: Pin<Output<PushPull>>,
     }
 
@@ -68,28 +55,28 @@ mod app {
 
     #[init]
     fn init(mut ctx: init::Context) -> (Shared, Local, init::Monotonics) {
-        static mut USB_BUS: Option<UsbBusAllocator<Usbd<UsbPeripheral>>> = None;
+        // static mut USB_BUS: Option<UsbBusAllocator<Usbd<UsbPeripheral>>> = None;
         static mut CLOCKS: Option<Clocks<ExternalOscillator, Internal, LfOscStopped>> = None;
 
         let dp = ctx.device;
-        let p0 = hal::gpio::p0::Parts::new(dp.P0);
-        // let p1 = hal::gpio::p1::Parts::new(dp.P1);
-        let mut led1 = p0.p0_06.into_push_pull_output(Level::High).degrade();
-        // let mut led = p0.p0_08.into_push_pull_output(Level::High).degrade();
-        // let mut led = p1.p1_09.into_push_pull_output(Level::High).degrade();
-        let mut led = p0.p0_12.into_push_pull_output(Level::High).degrade();
-
         let clocks = hal::clocks::Clocks::new(dp.CLOCK).enable_ext_hfosc();
-
         // .set_lfclk_src_external(hal::clocks::LfOscConfiguration::ExternalNoBypass)
         // .start_lfclk();
-
         unsafe {
             CLOCKS.replace(clocks);
         }
 
-        // Initialize the monotonic
-        let mono = DwtSystick::new(&mut ctx.core.DCB, ctx.core.DWT, ctx.core.SYST, FREQ);
+        // Enable the monotonic timer (CYCCNT)
+        ctx.core.DCB.enable_trace();
+        ctx.core.DWT.enable_cycle_counter();
+
+        let p0 = hal::gpio::p0::Parts::new(dp.P0);
+        // let p1 = hal::gpio::p1::Parts::new(dp.P1);
+
+        let mut led1 = p0.p0_06.into_push_pull_output(Level::High).degrade();
+        // let mut led = p0.p0_08.into_push_pull_output(Level::High).degrade();
+        // let mut led = p1.p1_09.into_push_pull_output(Level::High).degrade();
+        let mut led = p0.p0_12.into_push_pull_output(Level::High).degrade();
 
         /*
         // Start the hardware watchdog
@@ -104,6 +91,7 @@ mod app {
         periodic::spawn().ok();
         */
 
+        /*
         let usb_bus = Usbd::new(UsbPeripheral::new(dp.USBD, unsafe {
             CLOCKS.as_ref().unwrap()
         }));
@@ -123,14 +111,24 @@ mod app {
         .device_class(USB_CLASS_CDC)
         .max_packet_size_0(64) // (makes control transfers 8x faster)
         .build();
+        */
 
-        ping::spawn().ok();
+        // ping::spawn_after(500u32.millis()).ok();
+        // usb_poll::spawn_after(10u32.millis()).ok();
+
+        // Initialize the monotonic
+        // let mono = DwtSystick::new(&mut ctx.core.DCB, ctx.core.DWT, ctx.core.SYST, FREQ);
+        let mono = Mono::new(ctx.core.SYST, FREQ);
+
         led1.set_low().ok();
+        led.set_low().ok();
+        // led_set::spawn_after(1000u64.millis()).ok();
+        led_set::spawn().ok();
 
         (
             Shared {
-                usb_dev,
-                serial,
+                // usb_dev,
+                // serial,
                 led,
             },
             Local {},
@@ -143,7 +141,7 @@ mod app {
     fn idle(_ctx: idle::Context) -> ! {
         loop {
             // Wait for interrupt...
-            asm::wfi();
+            // asm::wfi();
         }
     }
 
@@ -156,7 +154,17 @@ mod app {
        }
     */
 
-    #[task(priority=2, shared=[serial])]
+    #[task(priority=2, capacity=2, shared=[led])]
+    fn led_set(ctx: led_set::Context) {
+        let led_set::SharedResources { mut led } = ctx.shared;
+
+        (&mut led).lock(|led| {
+            led.set_high().ok();
+        });
+    }
+
+    /*
+    #[task(priority=2, capacity=2, shared=[serial])]
     fn ping(ctx: ping::Context) {
         let ping::SharedResources { mut serial } = ctx.shared;
 
@@ -166,7 +174,8 @@ mod app {
         ping::spawn_after(1000u32.millis()).ok();
     }
 
-    #[task(priority=5, binds=USBD, shared=[usb_dev, serial, led])]
+    // #[task(priority=5, binds=USBD, shared=[usb_dev, serial, led])]
+    #[task(priority=5, capacity=2, shared=[usb_dev, serial, led])]
     fn usb_poll(ctx: usb_poll::Context) {
         let usb_poll::SharedResources {
             mut usb_dev,
@@ -194,6 +203,9 @@ mod app {
             }
             serial.write(&buf[0..count]).ok();
         });
+
+        usb_poll::spawn_after(5u32.millis()).ok();
     }
+    */
 }
 // EOF
