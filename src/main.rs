@@ -44,14 +44,20 @@ mod app {
     struct Shared {
         usb_dev: UsbDevice<'static, Usbd<UsbPeripheral<'static>>>,
         serial: usbd_serial::SerialPort<'static, Usbd<UsbPeripheral<'static>>>,
+        #[lock_free]
+        led1: Pin<Output<PushPull>>,
+        #[lock_free]
+        led1_on: bool,
+        led2: Pin<Output<PushPull>>,
+        led2_on: bool,
+        led3: Pin<Output<PushPull>>,
+        led3_on: bool,
+        led4: Pin<Output<PushPull>>,
+        led4_on: bool,
     }
 
     #[local]
     struct Local {
-        led1: Pin<Output<PushPull>>,
-        led2: Pin<Output<PushPull>>,
-        led3: Pin<Output<PushPull>>,
-        led4: Pin<Output<PushPull>>,
         wdh0: wdt::WatchdogHandle<wdt::handles::Hdl0>,
     }
 
@@ -79,7 +85,7 @@ mod app {
 
         let mut led1 = p0.p0_06.into_push_pull_output(Level::High).degrade();
         let led2 = p0.p0_12.into_push_pull_output(Level::High).degrade();
-        let mut led3 = p0.p0_08.into_push_pull_output(Level::High).degrade();
+        let led3 = p0.p0_08.into_push_pull_output(Level::High).degrade();
         let led4 = p1.p1_09.into_push_pull_output(Level::High).degrade();
 
         // Start the hardware watchdog
@@ -91,7 +97,7 @@ mod app {
         } = watchdog.activate::<wdt::count::One>();
         let wdh0 = handles.0;
         // start petting the watchdog
-        periodic::spawn().ok();
+        wdt_periodic::spawn().ok();
 
         let usb_bus = Usbd::new(UsbPeripheral::new(dp.USBD, unsafe {
             CLOCKS.as_ref().unwrap()
@@ -100,8 +106,8 @@ mod app {
             USB_BUS.replace(usb_bus);
         }
 
-        let mut serial = SerialPort::new(unsafe { USB_BUS.as_ref().unwrap() });
-        let mut usb_dev = UsbDeviceBuilder::new(
+        let serial = SerialPort::new(unsafe { USB_BUS.as_ref().unwrap() });
+        let usb_dev = UsbDeviceBuilder::new(
             unsafe { USB_BUS.as_ref().unwrap() },
             UsbVidPid(MY_USB_VID, MY_USB_PID),
         )
@@ -111,28 +117,27 @@ mod app {
         .device_class(USB_CLASS_CDC)
         .max_packet_size_0(64) // (makes control transfers 8x faster)
         .build();
-        if usb_dev.poll(&mut [&mut serial]) {
-            led3.set_low().ok();
-        }
 
         // ping::spawn_after(500u32.millis()).ok();
-        // usb_poll::spawn().ok();
 
         led1.set_low().ok();
-
-        //led.set_low().ok();
-        // led_set::spawn().ok();
         led_blink::spawn_after(1000u32.millis()).ok();
+        usb_periodic::spawn().ok();
 
         (
-            Shared { usb_dev, serial },
-            Local {
+            Shared {
+                usb_dev,
+                serial,
                 led1,
                 led2,
                 led3,
                 led4,
-                wdh0,
+                led1_on: true,
+                led2_on: false,
+                led3_on: false,
+                led4_on: false,
             },
+            Local { wdh0 },
             init::Monotonics(mono),
         )
     }
@@ -148,19 +153,21 @@ mod app {
 
     // pet the watchdog to avoid hardware reset.
     #[task(priority=1, local=[wdh0])]
-    fn periodic(ctx: periodic::Context) {
+    fn wdt_periodic(ctx: wdt_periodic::Context) {
         ctx.local.wdh0.pet();
-        periodic::spawn_after(757u32.millis()).ok();
+        wdt_periodic::spawn_after(757u32.millis()).ok();
     }
 
-    #[task(priority=2, capacity=2, local=[led1])]
+    #[task(priority=2, capacity=2, shared=[led1, led1_on])]
     fn led_blink(ctx: led_blink::Context) {
-        let led = ctx.local.led1;
+        let led_blink::SharedResources { led1, led1_on } = ctx.shared;
 
-        if led.is_set_low().unwrap() {
-            led.set_high().ok();
+        if *led1_on {
+            led1.set_high().ok();
+            *led1_on = false;
         } else {
-            led.set_low().ok();
+            led1.set_low().ok();
+            *led1_on = true;
         }
 
         led_blink::spawn_after(250u32.millis()).ok();
@@ -178,34 +185,116 @@ mod app {
     }
     */
 
-    #[task(priority=5, binds=USBD, shared=[usb_dev, serial], local=[led2])]
-    fn usb_poll(ctx: usb_poll::Context) {
-        let usb_poll::SharedResources {
+    #[task(priority=2, capacity=8, shared=[led2, led2_on])]
+    fn led2_blink(ctx: led2_blink::Context, ms: u32) {
+        let led2_blink::SharedResources {
+            mut led2,
+            mut led2_on,
+        } = ctx.shared;
+
+        (&mut led2, &mut led2_on).lock(|led2, led2_on| {
+            if !(*led2_on) {
+                led2.set_low().ok();
+                *led2_on = true;
+                led2_off::spawn_after(ms.millis()).unwrap();
+            }
+        });
+    }
+
+    #[task(priority=2, shared=[led2, led2_on])]
+    fn led2_off(ctx: led2_off::Context) {
+        let led2_off::SharedResources {
+            mut led2,
+            mut led2_on,
+        } = ctx.shared;
+
+        (&mut led2, &mut led2_on).lock(|led2, led2_on| {
+            led2.set_high().ok();
+            *led2_on = false;
+        });
+    }
+
+    #[task(priority=2, capacity=8, shared=[led3, led3_on])]
+    fn led3_blink(ctx: led3_blink::Context, ms: u32) {
+        let led3_blink::SharedResources {
+            mut led3,
+            mut led3_on,
+        } = ctx.shared;
+
+        (&mut led3, &mut led3_on).lock(|led3, led3_on| {
+            if !(*led3_on) {
+                led3.set_low().ok();
+                *led3_on = true;
+                led3_off::spawn_after(ms.millis()).unwrap();
+            }
+        });
+    }
+
+    #[task(priority=2, shared=[led3, led3_on])]
+    fn led3_off(ctx: led3_off::Context) {
+        let led3_off::SharedResources {
+            mut led3,
+            mut led3_on,
+        } = ctx.shared;
+
+        (&mut led3, &mut led3_on).lock(|led3, led3_on| {
+            led3.set_high().ok();
+            *led3_on = false;
+        });
+    }
+
+    #[task(priority=5, binds=USBD, shared=[usb_dev, serial])]
+    fn usb_interrupt(ctx: usb_interrupt::Context) {
+        let usb_interrupt::SharedResources {
             mut usb_dev,
             mut serial,
         } = ctx.shared;
-        let led = ctx.local.led2;
-        led.set_low().ok();
 
         (&mut usb_dev, &mut serial).lock(|usb_dev, serial| {
-            if !usb_dev.poll(&mut [serial]) {
-                return;
-            }
-            let mut buf = [0u8; 64];
-            let count = match serial.read(&mut buf) {
-                Ok(c) if c > 0 => c,
-                _ => {
-                    return;
-                }
-            };
-            // Echo back in upper case
-            for c in buf[0..count].iter_mut() {
-                if 0x61 <= *c && *c <= 0x7a {
-                    *c &= !0x20;
-                }
-            }
-            serial.write(&buf[0..count]).ok();
+            usb_poll(usb_dev, serial);
         });
+        led2_blink::spawn(10).ok();
+    }
+
+    #[task(priority=3,  shared=[usb_dev, serial])]
+    fn usb_periodic(ctx: usb_periodic::Context) {
+        let usb_periodic::SharedResources {
+            mut usb_dev,
+            mut serial,
+        } = ctx.shared;
+
+        (&mut usb_dev, &mut serial).lock(|usb_dev, serial| {
+            usb_poll(usb_dev, serial);
+        });
+        led3_blink::spawn(1).ok();
+        usb_periodic::spawn_after(10.millis()).ok();
+    }
+
+    fn usb_poll<'a>(
+        usb_dev: &mut UsbDevice<Usbd<UsbPeripheral<'a>>>,
+        serial: &mut SerialPort<Usbd<UsbPeripheral<'a>>>,
+    ) -> bool {
+        if !usb_dev.poll(&mut [serial]) {
+            return false;
+        }
+        let mut buf = [0u8; 64];
+        let count = match serial.read(&mut buf) {
+            Ok(c) if c > 0 => c,
+            _ => {
+                return false;
+            }
+        };
+        serial_echo(serial, &mut buf[0..count]);
+        true
+    }
+
+    fn serial_echo<'a>(serial: &'a mut SerialPort<Usbd<UsbPeripheral>>, data: &'a mut [u8]) {
+        for c in data.iter_mut() {
+            if 0x61 <= *c && *c <= 0x7a {
+                *c &= !0x20;
+            }
+        }
+        serial.write(data).ok();
     }
 }
 // EOF
