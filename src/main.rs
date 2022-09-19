@@ -22,13 +22,12 @@ mod app {
     type MyMono = MonoTimer<TIMER0>;
 
     #[shared]
-    struct Shared {
-        led: Pin<Output<PushPull>>,
-    }
+    struct Shared {}
 
     #[local]
     struct Local {
         i: u64,
+        led: Pin<Output<PushPull>>,
     }
 
     #[init]
@@ -42,13 +41,13 @@ mod app {
 
         let p0 = hal::gpio::p0::Parts::new(dp.P0);
         let mut led1 = p0.p0_06.into_push_pull_output(Level::High).degrade();
-        let led = p0.p0_12.into_push_pull_output(Level::High).degrade();
+        let mut led = p0.p0_12.into_push_pull_output(Level::High).degrade();
 
         led1.set_low().ok();
+        led.set_low().ok();
+        led_blink::spawn().ok();
 
-        led_set::spawn_after(1000u32.millis()).ok();
-
-        (Shared { led }, Local { i: 0 }, init::Monotonics(mono))
+        (Shared {}, Local { i: 0, led }, init::Monotonics(mono))
     }
 
     // Background task, runs whenever no other tasks are running
@@ -64,13 +63,15 @@ mod app {
         }
     }
 
-    #[task(priority=2, capacity=2, shared=[led])]
-    fn led_set(ctx: led_set::Context) {
-        let led_set::SharedResources { mut led } = ctx.shared;
-
-        (&mut led).lock(|led| {
+    #[task(local=[led])]
+    fn led_blink(ctx: led_blink::Context) {
+        let led = ctx.local.led;
+        if led.is_set_low().unwrap() {
+            led.set_high().ok();
+        } else {
             led.set_low().ok();
-        });
+        }
+        led_blink::spawn_after(1.secs()).ok();
     }
 }
 // EOF
