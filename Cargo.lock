@@ -357,7 +357,7 @@ dependencies = [
 
 [[package]]
 name = "nrf_radio"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "cortex-m",
  "cortex-m-rt",
@@ -366,7 +366,7 @@ dependencies = [
  "fugit",
  "nrf52840-hal",
  "panic-halt",
- "systick-monotonic",
+ "rtic-monotonic",
  "usb-device",
  "usbd-serial",
 ]
@@ -562,17 +562,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "unicode-ident",
-]
-
-[[package]]
-name = "systick-monotonic"
-version = "1.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "57e71d8e4587d8f434b88b9aef901987f46164df813a3a1d6bdf3a58debf67f0"
-dependencies = [
- "cortex-m",
- "fugit",
- "rtic-monotonic",
 ]
 
 [[package]]
