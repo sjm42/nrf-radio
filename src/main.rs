@@ -19,7 +19,7 @@ mod app {
     use crate::*;
 
     #[monotonic(binds = TIMER0, default = true)]
-    type RtcMono = MonoTimer<TIMER0>;
+    type MyMono = MonoTimer<TIMER0>;
 
     #[shared]
     struct Shared {
