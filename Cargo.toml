@@ -3,7 +3,7 @@ authors = ["Sami J. Mäkinen <sjm@iki.fi>"]
 edition = "2021"
 readme = "README.md"
 name = "nrf_radio"
-version = "0.1.1"
+version = "0.1.0"
 
 
 [features]
@@ -28,10 +28,21 @@ cortex-m-rtic = "1.1"
 embedded-hal = "0.2"
 fugit = "0.3"
 panic-halt = "0.2"
-rtic-monotonic = "1.0"
 usb-device = "0.2"
 usbd-serial = "0.1"
 
+# rtic-monotonic = "1.0"
+# systick-monotonic = "1"
+
+
+# this lets you use `cargo fix`!
+[[bin]]
+name = "nrf_radio"
+
+test = false
+bench = false
+
+# identical profiles haha
 
 [profile.release]
 opt-level = 'z'

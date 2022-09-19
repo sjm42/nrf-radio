@@ -357,7 +357,7 @@ dependencies = [
 
 [[package]]
 name = "nrf_radio"
-version = "0.1.1"
+version = "0.1.0"
 dependencies = [
  "cortex-m",
  "cortex-m-rt",
@@ -366,7 +366,6 @@ dependencies = [
  "fugit",
  "nrf52840-hal",
  "panic-halt",
- "rtic-monotonic",
  "usb-device",
  "usbd-serial",
 ]
