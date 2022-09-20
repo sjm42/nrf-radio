@@ -13,7 +13,7 @@ use nrf52840_hal as hal;
 
 use hal::usbd::{UsbPeripheral, Usbd};
 use hal::{clocks::*, wdt, Clocks};
-use hal::{gpio::*, pac::*, prelude::*};
+use hal::{gpio::*, ieee802154, pac::*, prelude::*};
 use usb_device::{
     class_prelude::*,
     device::{UsbDeviceBuilder, UsbVidPid},
@@ -42,6 +42,7 @@ mod app {
     struct Shared {
         usb_dev: UsbDevice<'static, Usbd<UsbPeripheral<'static>>>,
         serial: SerialPort<'static, Usbd<UsbPeripheral<'static>>>,
+        radio: ieee802154::Radio<'static>,
         #[lock_free]
         led1: Pin<Output<PushPull>>,
         #[lock_free]
@@ -70,10 +71,7 @@ mod app {
             .enable_ext_hfosc()
             .set_lfclk_src_external(hal::clocks::LfOscConfiguration::NoExternalNoBypass)
             .start_lfclk();
-
-        unsafe {
-            CLOCKS.replace(clocks);
-        }
+        let clocks = unsafe { CLOCKS.insert(clocks) };
 
         // Initialize the monotonic
         let mono = MonoTimer::new(dp.TIMER1);
@@ -86,6 +84,26 @@ mod app {
         let led3 = p0.p0_08.into_push_pull_output(Level::High).degrade();
         let led4 = p1.p1_09.into_push_pull_output(Level::High).degrade();
 
+        let radio = {
+            let mut radio = ieee802154::Radio::init(dp.RADIO, clocks);
+            // set TX power to its maximum value
+            radio.set_txpower(ieee802154::TxPower::Pos8dBm);
+            radio
+        };
+
+        // Init USB
+        let usb_bus = Usbd::new(UsbPeripheral::new(dp.USBD, clocks));
+        let usb_bus = unsafe { USB_BUS.insert(usb_bus) };
+
+        let serial = SerialPort::new(usb_bus);
+        let usb_dev = UsbDeviceBuilder::new(usb_bus, UsbVidPid(MY_USB_VID, MY_USB_PID))
+            .manufacturer(MY_USB_MFC)
+            .product(MY_USB_PROD)
+            .serial_number(MY_USB_SER)
+            .device_class(USB_CLASS_CDC)
+            .max_packet_size_0(64) // (makes control transfers 8x faster)
+            .build();
+
         // Start the hardware watchdog
         let mut watchdog = wdt::Watchdog::try_new(dp.WDT).unwrap();
         watchdog.set_lfosc_ticks(2 * 32768); // 2 seconds
@@ -97,34 +115,18 @@ mod app {
         // start petting the watchdog
         wdt_periodic::spawn().ok();
 
-        let usb_bus = Usbd::new(UsbPeripheral::new(dp.USBD, unsafe {
-            CLOCKS.as_ref().unwrap()
-        }));
-        unsafe {
-            USB_BUS.replace(usb_bus);
-        }
-
-        let serial = SerialPort::new(unsafe { USB_BUS.as_ref().unwrap() });
-        let usb_dev = UsbDeviceBuilder::new(
-            unsafe { USB_BUS.as_ref().unwrap() },
-            UsbVidPid(MY_USB_VID, MY_USB_PID),
-        )
-        .manufacturer(MY_USB_MFC)
-        .product(MY_USB_PROD)
-        .serial_number(MY_USB_SER)
-        .device_class(USB_CLASS_CDC)
-        .max_packet_size_0(64) // (makes control transfers 8x faster)
-        .build();
-
-        led1.set_low().ok();
-
         usb_periodic::spawn().ok();
         ping::spawn_after(5.secs()).ok();
         led_blink::spawn_after(1000u32.millis()).ok();
+        radio_scan::spawn().ok();
+
+        led1.set_low().ok();
+
         (
             Shared {
                 usb_dev,
                 serial,
+                radio,
                 led1,
                 led2,
                 led3,
@@ -291,6 +293,24 @@ mod app {
             }
         }
         serial.write(data).ok();
+    }
+
+    #[task(priority=2, capacity=2, shared=[radio, serial])]
+    fn radio_scan(ctx: radio_scan::Context) {
+        let radio_scan::SharedResources {
+            mut radio,
+            mut serial,
+        } = ctx.shared;
+
+        let p = ieee802154::Packet::new();
+        (&mut radio, &mut serial).lock(|radio, serial| {
+            radio.set_channel(ieee802154::Channel::_11);
+            let ed = radio.energy_detection_scan(16);
+            serial.write(format!("Ch11 ed: {}", ed));
+            // foo
+        });
+
+        radio_scan::spawn_after(100u32.millis()).ok();
     }
 }
 // EOF
