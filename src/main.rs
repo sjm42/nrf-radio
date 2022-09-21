@@ -2,18 +2,22 @@
 
 #![no_std]
 #![no_main]
+#![feature(alloc_error_handler)]
 // #![allow(unused_mut)]
 // #![allow(non_snake_case)]
 // #![deny(warnings)]
 
+extern crate alloc;
+extern crate no_std_compat as std;
 use panic_halt as _;
 
 use cortex_m::asm;
 use nrf52840_hal as hal;
 
+use hal::ieee802154::{self, Channel};
 use hal::usbd::{UsbPeripheral, Usbd};
 use hal::{clocks::*, wdt, Clocks};
-use hal::{gpio::*, ieee802154, pac::*, prelude::*};
+use hal::{gpio::*, pac::*, prelude::*};
 use usb_device::{
     class_prelude::*,
     device::{UsbDeviceBuilder, UsbVidPid},
@@ -21,8 +25,38 @@ use usb_device::{
 };
 use usbd_serial::{SerialPort, USB_CLASS_CDC};
 
+use alloc_cortex_m::CortexMHeap;
+use core::alloc::Layout;
+use core::fmt::{self, Write};
+use std::prelude::v1::*;
+
+#[global_allocator]
+static ALLOCATOR: CortexMHeap = CortexMHeap::empty();
+
+#[allow(clippy::empty_loop)]
+#[alloc_error_handler]
+fn oom(_: Layout) -> ! {
+    loop {}
+}
 mod mono;
 use mono::{ExtU32, MonoTimer};
+
+pub struct MyUsbSerial {
+    pub serial: SerialPort<'static, Usbd<UsbPeripheral<'static>>>,
+}
+
+impl fmt::Write for MyUsbSerial {
+    fn write_str(&mut self, s: &str) -> fmt::Result {
+        s.bytes()
+            .try_for_each(|c| {
+                if c == b'\n' {
+                    self.serial.write(&[b'\r'])?;
+                }
+                self.serial.write(&[c]).map(|_| ())
+            })
+            .map_err(|_| fmt::Error)
+    }
+}
 
 const MY_USB_VID: u16 = 0x16c0;
 const MY_USB_PID: u16 = 0x27dd;
@@ -32,7 +66,6 @@ const MY_USB_SER: &str = "asdf1234";
 
 #[rtic::app(device = hal::pac, peripherals = true, dispatchers = [SWI0_EGU0, SWI1_EGU1, SWI2_EGU2, SWI3_EGU3, SWI4_EGU4])]
 mod app {
-
     use crate::*;
 
     #[monotonic(binds = TIMER1, default = true)]
@@ -41,7 +74,7 @@ mod app {
     #[shared]
     struct Shared {
         usb_dev: UsbDevice<'static, Usbd<UsbPeripheral<'static>>>,
-        serial: SerialPort<'static, Usbd<UsbPeripheral<'static>>>,
+        serial: MyUsbSerial,
         radio: ieee802154::Radio<'static>,
         #[lock_free]
         led1: Pin<Output<PushPull>>,
@@ -62,6 +95,10 @@ mod app {
 
     #[init]
     fn init(ctx: init::Context) -> (Shared, Local, init::Monotonics) {
+        let start = cortex_m_rt::heap_start() as usize;
+        let size = 64 * 1024; // in bytes
+        unsafe { crate::ALLOCATOR.init(start, size) }
+
         static mut USB_BUS: Option<UsbBusAllocator<Usbd<UsbPeripheral>>> = None;
         static mut CLOCKS: Option<Clocks<ExternalOscillator, ExternalOscillator, LfOscStarted>> =
             None;
@@ -116,16 +153,16 @@ mod app {
         wdt_periodic::spawn().ok();
 
         usb_periodic::spawn().ok();
-        ping::spawn_after(5.secs()).ok();
         led_blink::spawn_after(1000u32.millis()).ok();
-        radio_scan::spawn().ok();
+        radio_scan::spawn_after(3.secs()).ok();
+        // ping::spawn_after(5.secs()).ok();
 
         led1.set_low().ok();
 
         (
             Shared {
                 usb_dev,
-                serial,
+                serial: MyUsbSerial { serial },
                 radio,
                 led1,
                 led2,
@@ -177,7 +214,7 @@ mod app {
         let ping::SharedResources { mut serial } = ctx.shared;
 
         (&mut serial,).lock(|serial| {
-            serial.write("\r***PING!\n\r".as_bytes()).ok();
+            write!(serial, "\r***PING!\n\r").ok();
         });
         ping::spawn_after(5.secs()).ok();
     }
@@ -248,7 +285,7 @@ mod app {
         } = ctx.shared;
 
         (&mut usb_dev, &mut serial).lock(|usb_dev, serial| {
-            usb_poll(usb_dev, serial);
+            usb_poll(usb_dev, &mut serial.serial);
         });
         led2_blink::spawn(50).ok();
     }
@@ -261,7 +298,7 @@ mod app {
         } = ctx.shared;
 
         (&mut usb_dev, &mut serial).lock(|usb_dev, serial| {
-            usb_poll(usb_dev, serial);
+            usb_poll(usb_dev, &mut serial.serial);
         });
         // led3_blink::spawn(1).ok();
         usb_periodic::spawn_after(3.millis()).ok();
@@ -295,22 +332,57 @@ mod app {
         serial.write(data).ok();
     }
 
-    #[task(priority=2, capacity=2, shared=[radio, serial])]
+    fn to_chan(num: u16) -> Option<Channel> {
+        match num {
+            5 => Some(Channel::_11),
+            10 => Some(Channel::_12),
+            15 => Some(Channel::_13),
+            20 => Some(Channel::_14),
+            25 => Some(Channel::_15),
+            30 => Some(Channel::_16),
+            35 => Some(Channel::_17),
+            40 => Some(Channel::_18),
+            45 => Some(Channel::_19),
+            50 => Some(Channel::_20),
+            55 => Some(Channel::_21),
+            60 => Some(Channel::_22),
+            65 => Some(Channel::_23),
+            70 => Some(Channel::_24),
+            75 => Some(Channel::_25),
+            80 => Some(Channel::_26),
+            _ => None,
+        }
+    }
+
+    #[task(priority=2, capacity=2, shared=[radio, serial], local=[i: u16=0])]
     fn radio_scan(ctx: radio_scan::Context) {
         let radio_scan::SharedResources {
             mut radio,
             mut serial,
         } = ctx.shared;
+        let radio_scan::LocalResources { i } = ctx.local;
 
-        let p = ieee802154::Packet::new();
+        let packet = ieee802154::Packet::new();
+
         (&mut radio, &mut serial).lock(|radio, serial| {
-            radio.set_channel(ieee802154::Channel::_11);
-            let ed = radio.energy_detection_scan(16);
-            serial.write(format!("Ch11 ed: {}", ed));
-            // foo
-        });
+            let channel = match to_chan(*i) {
+                Some(c) => c,
+                None => {
+                    *i = 5;
+                    write!(serial, "*****\r\n").ok();
+                    Channel::_11
+                }
+            };
+            let mhz = 2400u16 + channel as u16;
 
-        radio_scan::spawn_after(100u32.millis()).ok();
+            radio.set_channel(channel);
+            let ed = radio.energy_detection_scan(16);
+            write!(serial, "Radio {} MHz ed: {}\r\n", mhz, ed).ok();
+            let res = radio.recv_timeout(&mut packet, &mut timer, 10_000);
+        });
+        *i += 5;
+
+        radio_scan::spawn_after(1200u32.millis()).ok();
     }
 }
 // EOF
