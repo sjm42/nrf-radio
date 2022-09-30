@@ -354,35 +354,29 @@ mod app {
         }
     }
 
-    #[task(priority=2, capacity=2, shared=[radio, serial], local=[i: u16=0])]
+    #[task(priority=2, capacity=2, shared=[radio, serial])]
     fn radio_scan(ctx: radio_scan::Context) {
         let radio_scan::SharedResources {
             mut radio,
             mut serial,
         } = ctx.shared;
-        let radio_scan::LocalResources { i } = ctx.local;
-
-        let packet = ieee802154::Packet::new();
+        // let packet = ieee802154::Packet::new();
 
         (&mut radio, &mut serial).lock(|radio, serial| {
-            let channel = match to_chan(*i) {
-                Some(c) => c,
-                None => {
-                    *i = 5;
-                    write!(serial, "*****\r\n").ok();
-                    Channel::_11
-                }
-            };
-            let mhz = 2400u16 + channel as u16;
-
-            radio.set_channel(channel);
-            let ed = radio.energy_detection_scan(16);
-            write!(serial, "Radio {} MHz ed: {}\r\n", mhz, ed).ok();
-            let res = radio.recv_timeout(&mut packet, &mut timer, 10_000);
+            let mut edsum: u16 = 0;
+            (5..=80).step_by(5).for_each(|i| {
+                let channel = to_chan(i).unwrap_or(Channel::_11);
+                let mhz = 2400u16 + channel as u16;
+                radio.set_channel(channel);
+                let ed = radio.energy_detection_scan(80);
+                write!(serial, "Radio {} MHz ed: {}\r\n", mhz, ed).ok();
+                edsum += ed as u16;
+            });
+            write!(serial, "*** Radio max ed: {}\r\n\r\n", edsum).ok();
         });
-        *i += 5;
 
-        radio_scan::spawn_after(1200u32.millis()).ok();
+        radio_scan::spawn_after(1800u32.millis()).ok();
     }
 }
+
 // EOF
