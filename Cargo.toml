@@ -1,23 +1,25 @@
+# Cargo.toml
+
 [package]
 authors = ["Sami J. Mäkinen <sjm@iki.fi>"]
 edition = "2021"
 readme = "README.md"
 name = "nrf_radio"
-version = "0.1.0"
+version = "0.1.1"
 
 
 [features]
-nrf52840 = []
-
 default = ["nrf52840_dongle"]
 # default = ["nrf52840_dk"]
 
+nrf52840 = []
 nrf52840_dongle = ["nrf52840", "nrf52840-hal"]
 nrf52840_dk = ["nrf52840", "nrf52840-hal"]
 
+
 [dependencies.nrf52840-hal]
 optional = true
-version = "0.15"
+version = "0.16"
 features = ["rt"]
 
 
@@ -41,11 +43,9 @@ usbd-serial = "0.1"
 # this lets you use `cargo fix`!
 [[bin]]
 name = "nrf_radio"
-
 test = false
 bench = false
 
-# identical profiles haha
 
 [profile.release]
 opt-level = 'z'
@@ -58,3 +58,5 @@ opt-level = 'z'
 codegen-units = 1 # better optimizations
 debug = true      # symbols are nice and they don't increase the size on Flash
 lto = true        # better optimizations
+
+# EOF

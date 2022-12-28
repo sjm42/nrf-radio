@@ -18,7 +18,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e3ff7eb3f316534d83a8a2c3d1674ace8a5a71198eba31e2e2b597833f699b28"
 dependencies = [
- "critical-section 1.1.1",
+ "critical-section",
 ]
 
 [[package]]
@@ -136,16 +136,6 @@ dependencies = [
  "quote",
  "rtic-syntax",
  "syn",
-]
-
-[[package]]
-name = "critical-section"
-version = "0.2.8"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c1706d332edc22aef4d9f23a6bb1c92360a403013c291af51247a737472dcae6"
-dependencies = [
- "bare-metal 1.0.0",
- "critical-section 1.1.1",
 ]
 
 [[package]]
@@ -298,9 +288,9 @@ checksum = "b93853da6d84c2e3c7d730d6473e8817692dd89be387eb01b94d7f108ecb5b8c"
 
 [[package]]
 name = "nrf-hal-common"
-version = "0.15.1"
+version = "0.16.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "089242b8b729622099054dcb5518e9eac80bcf6a7e30091c7cfa043383e9998c"
+checksum = "cd244c63d588066d75cffdcae8a03299fd5fb272e36bdde4a9f922f3e4bc6e4b"
 dependencies = [
  "cast",
  "cfg-if",
@@ -318,22 +308,21 @@ dependencies = [
 
 [[package]]
 name = "nrf-usbd"
-version = "0.1.1"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "640e88d4c108743c667f03320d0c9ab24a20f183a7a1b18bde7891ee13fd92c5"
+checksum = "66b2907c0b3ec4d264981c1fc5a2321d51c463d5a63d386e573f00e84d5495e6"
 dependencies = [
- "bare-metal 1.0.0",
  "cortex-m",
- "critical-section 0.2.8",
+ "critical-section",
  "usb-device",
  "vcell",
 ]
 
 [[package]]
 name = "nrf52840-hal"
-version = "0.15.1"
+version = "0.16.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "71c090616930ef132c1f7e9f9a964f6c8c5aa8962e402cc5abbbde7ce16ce9a0"
+checksum = "b54757ec98f38331889d1d6c535edb5dd543c762751abfe507f2d644b30f6d4f"
 dependencies = [
  "embedded-hal",
  "nrf-hal-common",
@@ -342,9 +331,9 @@ dependencies = [
 
 [[package]]
 name = "nrf52840-pac"
-version = "0.11.0"
+version = "0.12.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9efa9d1e910e3b825fd7e28f369363a8e036b386b77e21035b9f0e510de199cf"
+checksum = "30713f36f1be02e5bc9abefa30eae4a1f943d810f199d4923d3ad062d1be1b3d"
 dependencies = [
  "cortex-m",
  "cortex-m-rt",
@@ -353,7 +342,7 @@ dependencies = [
 
 [[package]]
 name = "nrf_radio"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "alloc-cortex-m",
  "cortex-m",
