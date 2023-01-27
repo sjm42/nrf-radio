@@ -177,9 +177,9 @@ checksum = "156d7a2fdd98ebbf9ae579cbceca3058cff946e13f8e17b90e3511db0508c723"
 
 [[package]]
 name = "fixed"
-version = "1.22.0"
+version = "1.22.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ad45f1b686656281ac6a3b7eaf487be0e9e69fe4678f8497c84beb5f0fab7dae"
+checksum = "b2e55932f129b8e8582d2099dd43f67c9e641a9369280fac04ac97c47ba1564e"
 dependencies = [
  "az",
  "bytemuck",
